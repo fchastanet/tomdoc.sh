@@ -1,4 +1,5 @@
-#!/bin/sh
+#!/bin/bash
+
 #/ Usage: tomdoc.sh [options] [--] [<shell-script>...]
 #/
 #/     -h, --help               show help text
@@ -16,60 +17,65 @@ set -e
 test -n "$TOMDOCSH_DEBUG" && set -x
 
 # Current version of tomdoc.sh.
-TOMDOCSH_VERSION="0.1.8"
+readonly TOMDOCSH_VERSION="0.1.9"
 
 generate=generate_text
 access=
 
 while test "$#" -ne 0; do
-    case "$1" in
-    -h|--h|--he|--hel|--help)
-        grep '^#/' <"$0" | cut -c4-
-        exit 0
-        ;;
-    --version)
-        printf "tomdoc.sh version %s\n" "$TOMDOCSH_VERSION"
-        exit 0
-        ;;
-    -t|--t|--te|--tex|--text)
-        generate=generate_text
-        shift
-        ;;
-    -m|--m|--ma|--mar|--mark|--markd|--markdo|--markdow|--markdown)
-        generate=generate_markdown
-        shift
-        ;;
-    -a|--a|--ac|--acc|--acce|--acces|--access)
-        test "$#" -ge 2 || {
-            printf "error: %s requires an argument\n" "$1" >&2
-            exit 1
-        }
-        access="$2"
-        shift 2
-        ;;
-    --)
-        shift
-        break
-        ;;
-    -|[!-]*)
-        break
-        ;;
-    -*)
-        printf "error: invalid option '%s'\n" "$1" >&2
-        exit 1
-        ;;
-    esac
+  case "$1" in
+  -h | --h | --he | --hel | --help)
+    grep '^#/' <"$0" | cut -c4-
+    exit 0
+    ;;
+  --version)
+    printf "tomdoc.sh version %s\n" "$TOMDOCSH_VERSION"
+    exit 0
+    ;;
+  -t | --t | --te | --tex | --text)
+    generate=generate_text
+    shift
+    ;;
+  -m | --m | --ma | --mar | --mark | --markd | --markdo | --markdow | --markdown)
+    generate=generate_markdown
+    shift
+    ;;
+  -a | --a | --ac | --acc | --acce | --acces | --access)
+    test "$#" -ge 2 || {
+      printf "error: %s requires an argument\n" "$1" >&2
+      exit 1
+    }
+    access="$2"
+    shift 2
+    ;;
+  --)
+    shift
+    break
+    ;;
+  - | [!-]*)
+    break
+    ;;
+  -*)
+    printf "error: invalid option '%s'\n" "$1" >&2
+    exit 1
+    ;;
+  esac
 done
 
+readonly TYPE_FUNCTION='function'
+readonly TYPE_EXPORT='export'
+readonly TYPE_VARIABLE='variable'
+readonly TYPE_CONSTANT='constant'
+readonly TYPE_UNKNOWN='unknown'
 
 # Regular expression matching at least one whitespace.
-SPACE_RE='[[:space:]][[:space:]]*'
+readonly SPACE_RE='[[:space:]][[:space:]]*'
 
 # Regular expression matching optional whitespace.
-OPTIONAL_SPACE_RE='[[:space:]]*'
+readonly OPTIONAL_SPACE_RE='[[:space:]]*'
 
 # The inverse of the above, must match at least one character
-NOT_SPACE_RE='[^[:space:]][^[:space:]]*'
+readonly NOT_SPACE_RE='[^[:space:]][^[:space:]]*'
 
 # Regular expression matching shell function or variable name.  Functions may
 # use nearly every character.  See [issue #8].  Disallowed characters (hex,
@@ -91,21 +97,20 @@ NOT_SPACE_RE='[^[:space:]][^[:space:]]*'
 # Must use a hyphen first because otherwise it is an invalid range expression.
 #
 # [issue #8]: https://github.com/tests-always-included/tomdoc.sh/issues/8
-FUNC_NAME_RE=$(printf "[^-\\001\\011 \"#$&'();<>\\134\\140|\\177][^\\001\\011 \"$&'();<=>[\\134\\140|\\177]*")
-
+readonly FUNC_NAME_RE=$(printf "[^-\\001\\011 \"#$&'();<>\\134\\140|\\177][^\\001\\011 \"$&'();<=>[\\134\\140|\\177]*")
 
 # Regular expression matching variable names.  Similar to FUNC_NAME_RE.
 # Variables are far more restrictive.
 #
 # Leading characters can be A-Z, _, a-z.
 # Secondary characters can be 0-9, =, A-Z, _, a-z
-VAR_NAME_RE='[A-Z_a-z][0-9=A-Z_a-z]*'
+readonly VAR_NAME_RE='[A-Z_a-z][0-9A-Z_a-z]*'
 
 # Strip leading whitespace and '#' from TomDoc strings.
 #
 # Returns nothing.
 uncomment() {
-    sed -e "s/^$OPTIONAL_SPACE_RE#[[:space:]]\?//"
+  sed -e "s/^$OPTIONAL_SPACE_RE#[[:space:]]\?//"
 }
 
 # Generate the documentation for a shell function or variable in plain text
@@ -116,7 +121,7 @@ uncomment() {
 #
 # Returns nothing.
 generate_text() {
-    cat <<EOF
+  cat <<EOF
 --------------------------------------------------------------------------------
 $1
 
@@ -129,113 +134,129 @@ EOF
 # and write it to stdout.
 #
 # $1 - Function or variable name
-# $2 - TomDoc string
+# $2 - type: function, export, var, ...
+# $3 - TomDoc string
 #
 # Returns nothing.
 generate_markdown() {
-    local line last did_newline last_was_option
+  local line last did_newline last_was_option
+  local title="$1"
+  local type="$2"
+  local doc="$3"
 
-    printf "%s\n" '`'"$1"'`'
-    printf "%s" " $1 " | tr -c - -
-    printf "\n\n"
+  if [[ "$type" == "${TYPE_UNKNOWN}" ]]; then
+    return
+  fi
 
-    last=""
-    did_newline=false
-    last_was_option=false
+  # remove line that contains shellcheck
+  doc="$(echo "$doc" | grep -v '# shellcheck')"
+  if [[ -z "$doc" ]]; then
+    return
+  fi
 
-    printf "%s\n" "$2" | uncomment | sed -e "s/$SPACE_RE$//" | while IFS='' read -r line; do
-        if printf "%s" "$line" | grep -q "^$OPTIONAL_SPACE_RE$NOT_SPACE_RE$SPACE_RE-$SPACE_RE"; then
-            # This is for arguments
-            if ! $did_newline; then
-                printf "\n"
-            fi
+  printf '# %s `'%s'`'"\n" "$type" "$title"
 
-            if printf "%s" "$line" | grep -q "^$NOT_SPACE_RE"; then
-                printf "%s" "* $line"
-            else
-                # Careful - BSD sed always adds a newline
-                printf "    * "
-                printf "%s" "$line" | sed "s/^$SPACE_RE//" | tr -d "\n"
-            fi
+  # determine if doc begins with Public or Internal
+  currentLineAccess=""
+  if [[ $doc =~ ^#\ ((Internal|Public):?)+\ (.*)$ ]]; then
+    currentLineAccess="${BASH_REMATCH[2]}"
+    doc="# ${BASH_REMATCH[3]}"
+  fi
+  test -n "${currentLineAccess}" && {
+    echo "> ***${currentLineAccess}***"
+    echo
+  }
 
-            last_was_option=true
+  last=""
+  did_newline=false
+  last_was_option=false
 
-            # shellcheck disable=SC2030
+  printf "%s\n" "$doc" | uncomment | sed -e "s/$SPACE_RE$//" | while IFS='' read -r line; do
+    if printf "%s" "$line" | grep -q "^$OPTIONAL_SPACE_RE$NOT_SPACE_RE$SPACE_RE-$SPACE_RE"; then
+      # This is for arguments
+      if ! $did_newline; then
+        printf "\n"
+      fi
 
-            did_newline=false
-        else
-            case "$line" in
-                "")
-                    # Check for end of paragraph / section
-                    if ! $did_newline; then
-                        printf "\n"
-                    fi
+      if printf "%s" "$line" | grep -q "^$NOT_SPACE_RE"; then
+        printf "%s" "* $line"
+      else
+        # Careful - BSD sed always adds a newline
+        printf "    * "
+        printf "%s" "$line" | sed "s/^$SPACE_RE//" | tr -d "\n"
+      fi
 
-                    printf "\n"
-                    did_newline=true
-                    last_was_option=false
-                    ;;
+      last_was_option=true
 
-                "  "*)
-                    # Examples and option continuation
-                    if $last_was_option; then
-                        # Careful - BSD sed always adds a newline
-                        printf "%s" "$line" | sed "s/^ */ /" | tr -d "\n"
-                        did_newline=false
-                    else
-                        printf "  %s\n" "$line"
-                        did_newline=true
-                    fi
-                    ;;
+      # shellcheck disable=SC2030
 
-                "* "*)
-                    # A list should not continue a previous paragraph.
-                    printf "%s\n" "$line"
-                    did_newline=true
-                    ;;
-
-                *)
-                    # Paragraph text (does not start with a space)
-                    case "$last" in
-                        "")
-                            # Start a new paragraph - no space at the beginning
-                            printf "%s" "$line"
-                            ;;
-
-                        *)
-                            # Continue this line - include space at the beginning
-                            printf " %s" "$line"
-                            ;;
-                    esac
-
-                    did_newline=false
-                    last_was_option=false
-                    ;;
-            esac
+      did_newline=false
+    else
+      case "$line" in
+      "")
+        # Check for end of paragraph / section
+        if ! $did_newline; then
+          printf "\n"
         fi
 
-        last="$line"
-    done
-
-    # shellcheck disable=SC2031
-
-    if ! $did_newline; then
         printf "\n"
-    fi
-}
+        did_newline=true
+        last_was_option=false
+        ;;
 
-# Read lines from stdin, look for shell function or variable definition, and
-# print function or variable name if found; otherwise, print nothing.
-#
-# Returns nothing.
-parse_code() {
-    sed -n \
-        -e "s/^$OPTIONAL_SPACE_RE\(function$SPACE_RE\)\?\($FUNC_NAME_RE\)$OPTIONAL_SPACE_RE().*$/\2()/p" \
-        -e "s/^$OPTIONAL_SPACE_RE\(export$SPACE_RE\)\?\($VAR_NAME_RE\)=.*$/\2/p" \
-        -e "s/^${OPTIONAL_SPACE_RE}export$SPACE_RE\($VAR_NAME_RE\).*$/\1/p" \
-        -e "s/^$OPTIONAL_SPACE_RE:$SPACE_RE\${\($VAR_NAME_RE\):\?=.*$/\1/p" \
-        -e "s/^${OPTIONAL_SPACE_RE}\(declare\|typeset\)$SPACE_RE\(-[a-zA-Z]*$SPACE_RE\)\?\($VAR_NAME_RE\)=.*$/\3/p" \
-        -e "s/^${OPTIONAL_SPACE_RE}\(declare\|typeset\)$SPACE_RE\(-[a-zA-Z]*$SPACE_RE\)\?\($VAR_NAME_RE\).*$/\3/p"
+      "  "*)
+        # Examples and option continuation
+        if $last_was_option; then
+          # Careful - BSD sed always adds a newline
+          printf "%s" "$line" | sed "s/^ */ /" | tr -d "\n"
+          did_newline=false
+        else
+          printf "  %s\n" "$line"
+          did_newline=true
+        fi
+        ;;
+
+      "* "*)
+        # A list should not continue a previous paragraph.
+        printf "%s\n" "$line"
+        did_newline=true
+        ;;
+      "\`\`\`"*)
+        # A code block should add a new line
+        printf "%s\n" "$line"
+        did_newline=true
+        ;;
+
+      *)
+        # Paragraph text (does not start with a space)
+        case "$last" in
+        "")
+          # Start a new paragraph - no space at the beginning
+          printf "%s" "$line
+"
+          ;;
+
+        *)
+          # Continue this line - include space at the beginning
+          printf " %s" "$line
+"
+          ;;
+        esac
+
+        did_newline=false
+        last_was_option=false
+        ;;
+      esac
+    fi
+
+    last="$line"
+  done
+
+  # shellcheck disable=SC2031
+
+  if ! $did_newline; then
+    printf "\n"
+  fi
 }
 
 # Read lines from stdin, look for TomDoc'd shell functions and variables, and
@@ -243,33 +264,92 @@ parse_code() {
 #
 # Returns nothing.
 parse_tomdoc() {
-    doc=
-    while read -r line; do
-        case "$line" in
-        '#'|'# '*)
-            doc="$doc$line
+  local file="$1"
+  local -a functions=()
+  local -a constants=()
+  local -a variables=()
+  local -a exports=()
+  local generatedDoc
+
+  doc=
+  while read -r line; do
+    case "$line" in
+    '#' | '# '*)
+      doc="$doc$line
 "
-            ;;
-        *)
-            test -n "$line" -a -n "$doc" && {
-                # Match access level if given.
-                test -n "$access" &&
-                case "$doc" in
-                "# $access:"*)
-                    ;;
-                *)
-                    doc=; continue ;;
-                esac
+      ;;
+    *)
+      test -n "$line" -a -n "$doc" && {
+        # Match access level if given.
+        test -n "$access" &&
+          case "$doc" in
+          "# $access:"*) ;;
 
-                name="$(printf "%s" "$line" | parse_code)"
-                test -n "$name" && "$generate" "$name" "$doc"
-            }
+          *)
             doc=
+            continue
             ;;
-        esac
-    done
+          esac
+
+        if [[ $line =~ ^$OPTIONAL_SPACE_RE(function$SPACE_RE)?($FUNC_NAME_RE)$OPTIONAL_SPACE_RE\(\).*$ ]]; then
+          type="${TYPE_FUNCTION}"
+          name="${BASH_REMATCH[2]}"
+        elif [[ $line =~ ^$OPTIONAL_SPACE_RE($FUNC_NAME_RE)$OPTIONAL_SPACE_RE\(\).*$ ]]; then
+          type="${TYPE_FUNCTION}"
+          name="${BASH_REMATCH[1]}"
+        elif [[ $line =~ ^${OPTIONAL_SPACE_RE}export$SPACE_RE($VAR_NAME_RE).*$ ]]; then
+          type="${TYPE_EXPORT}"
+          name="${BASH_REMATCH[1]}"
+        elif [[ $line =~ ^$OPTIONAL_SPACE_RE:$SPACE_RE\${($VAR_NAME_RE):?=.*$ ]]; then
+          type="${TYPE_VARIABLE}"
+          name="${BASH_REMATCH[1]}"
+        elif [[ $line =~ ^${OPTIONAL_SPACE_RE}(declare|typeset)$SPACE_RE(-[a-zA-Z]*$SPACE_RE)?($VAR_NAME_RE)=?.*$ ]]; then
+          type="${TYPE_VARIABLE}"
+          name="${BASH_REMATCH[3]}"
+        elif [[ $line =~ ^${OPTIONAL_SPACE_RE}(readonly)$SPACE_RE(-[a-zA-Z]*$SPACE_RE)?($VAR_NAME_RE)=?.*$ ]]; then
+          type="${TYPE_CONSTANT}"
+          name="${BASH_REMATCH[3]}"
+        else
+          type="${TYPE_UNKNOWN}"
+          name="$line"
+        fi
+        generatedDoc=""
+        test -n "$name" && {
+          generatedDoc="$("$generate" "$name" "$type" "$doc")"
+        }
+        if [[ -n "${generatedDoc}" ]]; then
+          case "$type" in
+          "${TYPE_FUNCTION}") functions+=("${generatedDoc}") ;;
+          "${TYPE_CONSTANT}") constants+=("${generatedDoc}") ;;
+          "${TYPE_VARIABLE}") variables+=("${generatedDoc}") ;;
+          "${TYPE_EXPORT}") exports+=("${generatedDoc}") ;;
+          esac
+        fi
+      }
+      doc=
+      ;;
+    esac
+  done
+
+  printf "# ${file}\n"
+
+  echoArray() {
+    local title="$1"
+
+    if [[ $# -gt 1 ]]; then
+      printf "# ${title}\n"
+      for elem in "${@:2}"; do
+        printf "${elem}\n"
+      done
+      echo
+    fi
+  }
+  echoArray "Functions" "${functions[@]}"
+  echoArray "Variables" "${variables[@]}"
+  echoArray "Constants" "${constants[@]}"
+  echoArray "Exports" "${exports[@]}"
 }
-
-cat -- "$@" | parse_tomdoc
-
+for file in "$@"; do
+  cat -- "$file" | parse_tomdoc "$file" | cat -s
+done
 :
