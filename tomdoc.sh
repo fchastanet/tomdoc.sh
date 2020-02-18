@@ -284,6 +284,11 @@ parse_tomdoc() {
     esac
   done
 
+  if [[ ${#functions[@]} -eq 0 && ${#variables[@]} -eq 0 && ${#constants[@]} -eq 0 && ${#exports[@]} -eq 0 ]]; then
+    # empty file
+    return
+  fi
+
   printf "# ${file}\n"
 
   echoArray() {
