@@ -1,26 +1,21 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #/ Usage: tomdoc.sh [options] [--] [<shell-script>...]
 #/
 #/     -h, --help               show help text
 #/     --version                show version
-#/     -t, --text               produce plain text (default format)
-#/     -m, --markdown           produce markdown
-#/     -a, --access <level>     filter by access level
 #/
 #/ Parse TomDoc'd shell scripts and generate pretty documentation from it.
 #
 # Written by Mathias Lafeldt <mathias.lafeldt@gmail.com>, later project was
 # transfered to Tyler Akins <fidian@rumkin.com>.
 
-set -e
-test -n "$TOMDOCSH_DEBUG" && set -x
+set -o errexit
 
 # Current version of tomdoc.sh.
-readonly TOMDOCSH_VERSION="0.1.9"
+readonly TOMDOCSH_VERSION="0.2"
 
-generate=generate_text
-access=
+generate=generate_markdown
 
 while test "$#" -ne 0; do
   case "$1" in
@@ -31,22 +26,6 @@ while test "$#" -ne 0; do
   --version)
     printf "tomdoc.sh version %s\n" "$TOMDOCSH_VERSION"
     exit 0
-    ;;
-  -t | --t | --te | --tex | --text)
-    generate=generate_text
-    shift
-    ;;
-  -m | --m | --ma | --mar | --mark | --markd | --markdo | --markdow | --markdown)
-    generate=generate_markdown
-    shift
-    ;;
-  -a | --a | --ac | --acc | --acce | --acces | --access)
-    test "$#" -ge 2 || {
-      printf "error: %s requires an argument\n" "$1" >&2
-      exit 1
-    }
-    access="$2"
-    shift 2
     ;;
   --)
     shift
@@ -62,6 +41,7 @@ while test "$#" -ne 0; do
   esac
 done
 
+readonly TYPE_MODULE='module'
 readonly TYPE_FUNCTION='function'
 readonly TYPE_EXPORT='export'
 readonly TYPE_VARIABLE='variable'
@@ -111,23 +91,6 @@ readonly VAR_NAME_RE='[A-Z_a-z][0-9A-Z_a-z]*'
 # Returns nothing.
 uncomment() {
   sed -e "s/^$OPTIONAL_SPACE_RE#[[:space:]]\?//"
-}
-
-# Generate the documentation for a shell function or variable in plain text
-# format and write it to stdout.
-#
-# $1 - Function or variable name
-# $2 - TomDoc string
-#
-# Returns nothing.
-generate_text() {
-  cat <<EOF
---------------------------------------------------------------------------------
-$1
-
-$(printf "%s" "$2" | uncomment)
-
-EOF
 }
 
 # Generate the documentation for a shell function or variable in markdown format
@@ -280,16 +243,6 @@ parse_tomdoc() {
       ;;
     *)
       test -n "$line" -a -n "$doc" && {
-        # Match access level if given.
-        test -n "$access" &&
-          case "$doc" in
-          "# $access:"*) ;;
-
-          *)
-            doc=
-            continue
-            ;;
-          esac
 
         if [[ $line =~ ^$OPTIONAL_SPACE_RE(function$SPACE_RE)?($FUNC_NAME_RE)$OPTIONAL_SPACE_RE\(\).*$ ]]; then
           type="${TYPE_FUNCTION}"
