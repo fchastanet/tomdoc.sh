@@ -117,7 +117,9 @@ generate_markdown() {
     return
   fi
 
-  printf '# %s `'%s'`'"\n" "$type" "$title"
+  echo
+  printf '### %s `'%s'`'"\n" "${type^}" "$title"
+  echo
 
   # determine if doc begins with Public or Internal
   currentLineAccess=""
@@ -295,7 +297,8 @@ parse_tomdoc() {
     local title="$1"
 
     if [[ $# -gt 1 ]]; then
-      printf "# ${title}\n"
+      echo 
+      printf "## ${title}\n"
       for elem in "${@:2}"; do
         printf "${elem}\n"
       done
